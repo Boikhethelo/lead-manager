@@ -3,5 +3,5 @@
   <component name="Black">
     <option name="sdkName" value="WSL (Ubuntu): (/home/mogs/.virtualenvs/LeadManager/bin/python)" />
   </component>
-  <component name="ProjectRootManager" version="2" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.10 (LeadManager)" project-jdk-type="Python SDK" />
 </project>

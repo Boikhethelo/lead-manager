@@ -87,14 +87,6 @@ class Commands:
         return self.repository.create_new_lead()
 
     def score_lead(self, lead_id: str) -> str:
-        """scores a lead based of its interactions and data.
-
-        Args:
-            lead_id (str): The unique identifier of the lead to delete.
-
-        Returns:
-            str: A confirmation message indicating the result of the scoring.
-        """
 
         lead_data = self.repository.get_by_id(lead_id)
 
@@ -104,14 +96,6 @@ class Commands:
         return f"Lead Score: [{result.get("Score")}] Reasoning: {result.get("Reasoning")} And Confidence: ({result.get("Confidence"):.0%})"
 
     def get_due_leads(self , args: str) -> list[dict] | None:
-        """Gets leads that require contacting and all its associated data from the system.
-
-        Args:
-            args (str): The call to get all the leads due.
-
-        Returns:
-            list[dict]: Information on all the leads due for contact.
-        """
 
         if args == "today":
             return self.reminder_services.get_due()
@@ -122,16 +106,7 @@ class Commands:
         else:
             return None
 
-    def export(self, filename : str , args: str) -> str:
-        """Export leads and all its associated data from the system.
-
-        Args:
-            filename (str): The desired export filename.
-            args (str): The desired file type.
-
-        Returns:
-            str: A confirmation message indicating the result of the deletion.
-        """
+    def export(self, filename , args: str) -> str:
         if args == "csv":
             return self.export_service.export_to_csv(filename)
         elif args == "excel":
