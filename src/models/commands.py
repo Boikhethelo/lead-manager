@@ -50,7 +50,7 @@ class Commands:
             return self.repository.search(clean_key, user_input)
 
         elif clean_key == "category":
-            return self.repository.get_category(user_input)
+            return [{user_input: self.repository.get_category(user_input)}]
 
         else:
             print(f"Unknown search call: '{key}'")

@@ -4,6 +4,7 @@ validator.py
 Provides input validation and parsing logic for the CLI. Ensures user input
 meets the structural requirements before passing it to the controller.
 """
+import shlex
 
 
 class Validator:
@@ -24,33 +25,28 @@ class Validator:
         self.VALID_KEYS = {"company", "contacts", "interactions", "id"}
 
     def validate_command(self, raw_input: str) -> list[str] | None:
-        """Parses and validates a raw input string from the user.
+            try:
+                # Fix: Use shlex.split to keep quoted strings intact
+                parts = shlex.split(raw_input.strip())
+            except ValueError as exc:
+                print(f"Input error: {exc}")
+                return None
 
-        Args:
-            raw_input (str): The raw string entered in the terminal.
+            if not parts:
+                return None
 
-        Returns:
-            list[str] | None: A validated and properly split list of arguments
-                              ready for argparse, or None if validation fails.
-        """
-        parts = raw_input.strip().split()
+            command = parts[0].lower()
 
-        if not parts:
-            return None
+            if command not in self.VALID_COMMANDS:
+                print(f"Unknown command: '{command}'. Enter 'help' for valid commands.")
+                return None
 
-        # Standardize to lowercase to prevent capitalization errors
-        command = parts[0].lower()
-
-        if command not in self.VALID_COMMANDS:
-            print(f"Unknown command: '{command}'. Enter 'help' for valid commands.")
-            return None
-
-        if command == "search":
-            return self.parse_search(parts)
-        elif command == "modify":
-            return self.parse_modify(parts)
-        else:
-            return parts
+            if command == "search":
+                return self.parse_search(parts)
+            elif command == "modify":
+                return self.parse_modify(parts)
+            else:
+                return parts
 
     def parse_search(self, parts: list[str]) -> list[str] | None:
         """Validates the syntax and structure of a 'search' command.
@@ -81,19 +77,11 @@ class Validator:
         return ["search", search_term, key]
 
     def parse_modify(self, parts: list[str]) -> list[str] | None:
-        """Validates the syntax and structure of a 'modify' command.
-
-        Args:
-            parts (list[str]): The split input string starting with 'modify'.
-
-        Returns:
-            list[str] | None: A formatted list containing ['modify', 'id', 'category', 'field', 'change'],
-                              or None if the structure is invalid.
-        """
-        # Expects: modify <id> <category> <field> <value> (minimum 5 parts)
         if len(parts) < 5:
             print("'modify' requires: modify <id> <category> <field> <value>")
             print("  Example: modify 1 leads Status Closed Won")
+            # Fix: Add a hint for users regarding quotes
+            print('  Note: Use quotes for multi-word fields, e.g., "Next Scheduled Contact"')
             return None
 
         lead_id = parts[1]

@@ -22,7 +22,7 @@ class LeadConfig:
         path (Path): Location of the configuration file.
     """
 
-    def __init__(self, config_path: Path = BASE_DIR / "config.ini"):
+    def __init__(self, config_path: Path = BASE_DIR.parent / "config.ini"):
         self.path = Path(config_path)
 
     def get_definitions(self) -> list[dict]:
@@ -55,6 +55,7 @@ class LeadFileHandler:
 
     def __init__(self, directory: Path = BASE_DIR.parent / "files"):
         self.directory = Path(directory)
+        self.directory.mkdir(parents=True, exist_ok=True)
 
     def read_file(self, filename: str) -> list[dict]:
         """Reads a CSV file into a list of row dicts."""

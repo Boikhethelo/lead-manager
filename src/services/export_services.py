@@ -68,6 +68,9 @@ class ExportService:
             if rows:
                 self._write_raw_sheet(wb, category.capitalize(),rows)
 
+        if not wb.sheetnames:
+            wb.create_sheet("No Data")
+
         wb.save(path)
 
         return str(path)
