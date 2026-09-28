@@ -3,7 +3,7 @@ import tempfile
 import shutil
 from pathlib import Path
 
-from database.repository import LeadFileHandler, LeadConfig, CsvLeadRepository
+from database.csv_repository import LeadFileHandler, LeadConfig, CsvLeadRepository
 from models.commands import Commands
 from services.reminder_service import ReminderService
 from services.export_services import ExportService

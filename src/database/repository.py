@@ -65,6 +65,19 @@ class LeadRepository(ABC):
         ...
 
     @abstractmethod
+    def search(self, category: str, term: str) -> list[dict]:
+        """Case-insensitive partial-text search within a single category.
+
+        Args:
+            category (str): The category to search ('company', 'contacts', 'interactions').
+            term (str): The text to look for.
+
+        Returns:
+            list[dict]: Full lead profiles for every distinct lead that matches.
+        """
+        ...
+
+    @abstractmethod
     def add(self, category: str, record: dict) -> None:
         """Adds a new lead record to the database in memory.
 
@@ -117,10 +130,16 @@ class LeadRepository(ABC):
         ...
 
     @abstractmethod
-    def save_score(self, result: dict) -> None: ...
+    def save_score(self, result: dict) -> None:
+        """Saves the score to database.
 
+        Args:
+            result(str): The score received from the scoring service.
 
+        Returns:
+            None
 
-
+        """
+        ...
 
     

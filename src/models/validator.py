@@ -19,7 +19,8 @@ class Validator:
     """
 
     def __init__(self):
-        self.VALID_COMMANDS = {"search", "delete", "modify", "new", "exit", "quit", "help" , "score" , "due" , "export"}
+        self.VALID_COMMANDS = {"search", "delete", "modify", "new", "score", "due", "export",
+                               "exit", "quit", "help"}
         self.VALID_KEYS = {"company", "contacts", "interactions", "id"}
 
     def validate_command(self, raw_input: str) -> list[str] | None:
@@ -103,4 +104,3 @@ class Validator:
         change = " ".join(parts[4:])
 
         return ["modify", lead_id, category, field, change]
-

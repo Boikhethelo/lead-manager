@@ -55,7 +55,7 @@ class App:
 
         #5. Load the export services
 
-        export_service = ExportService(repository, Path("../exports"))
+        export_service = ExportService(repository, Path("exports"))
 
         # 6. Wire everything together
         app_commands = Commands(repository, scoring_services , reminder_services, export_service)

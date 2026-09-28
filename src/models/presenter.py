@@ -23,11 +23,17 @@ class Presenter:
                 delete <id>                                - Remove a lead by ID
                 score  <id>                                - Scores a lead by ID
                 due    <frame>                             - Get leads due for contact
+                export <filename> <type>                   - Export files
                 help                                       - Show this message
                 exit / quit                                - Close the app
                    """
 
-    def start_up(self, banner):
+    def start_up(self, banner) -> None:
+        """Runs at the start of the application
+
+        Args:
+            banner(str): The header for the terminal
+        """
         print("Welcome to Lead Manager. \nThis is a fast CRM designed to manage high quality B2B leads.\n")
         print(banner)
         print("\n\n")
@@ -72,11 +78,6 @@ class Presenter:
                         # Print each key-value pair, defaulting to '—' if the value is empty
                         for k, v in row.items():
                             print(f"  {k}: {v or '—'}")
-
-
-
-
-
 
 
 

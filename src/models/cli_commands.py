@@ -46,14 +46,17 @@ class CLIConfig:
         add_lead_parser = self.subparsers.add_parser("new")
 
     def score_parser(self):
+        """Configures the 'score' subcommand and arguments."""
         score_parser = self.subparsers.add_parser("score")
         score_parser.add_argument("id" , help="None")
 
     def due_parser(self):
+        """Configures the 'due' subcommand and arguments."""
         due_parser = self.subparsers.add_parser("due")
         due_parser.add_argument("timeframe" , choices=["today" , "late"])
 
     def export_parser(self):
+        """Configures the 'export' subcommand and arguments."""
         export_parser = self.subparsers.add_parser("export")
         export_parser.add_argument("filename" , help="What you would like to name the file")
         export_parser.add_argument("type" , choices=["csv" , "excel"])
@@ -122,11 +125,19 @@ class AddLeadHandler:
         return self.commands.add_new_lead()
 
 class ScoreHandler:
+    """
+    Handler to execute score commands.
+
+    Args:
+        commands (commands.Commands): The core logic instance.
+    """
 
     def __init__(self, commands: commands.Commands):
+
         self.commands = commands
 
     def handle(self, args) -> str:
+        """Executes the new lead command."""
         return self.commands.score_lead(args.id)
 
 class DueHandler:
@@ -138,6 +149,12 @@ class DueHandler:
         return self.commands.get_due_leads(args.timeframe)
 
 class ExportHandler:
+    """
+    Handler to execute export commands.
+
+    Args:
+        commands (commands.Commands): The core logic instance.
+    """
 
     def __init__(self, commands: commands.Commands):
         self.commands = commands
@@ -164,7 +181,8 @@ class Controller:
                          "modify": ModifyHandler(commands),
                          "new": AddLeadHandler(commands),
                          "score": ScoreHandler(commands),
-                         "due": DueHandler(commands)}
+                         "due": DueHandler(commands),
+                         "export": ExportHandler(commands)}
 
     def run(self, user_input: list[str]) -> None:
         """
@@ -181,3 +199,5 @@ class Controller:
                 self.display(handler.handle(args))
         except SystemExit:
             print("Invalid arguments. Type 'help' for usage. ")
+        except Exception as exc:  # keep the REPL alive on unexpected errors
+            print(f"Error: {exc}")

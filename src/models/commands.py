@@ -6,7 +6,7 @@ This module bridges the CLI controller and the underlying data repository.
 """
 
 from database.repository import LeadRepository
-from services.lead_scoring import LeadScoringService
+from services.lead_scoring import LeadScoringService, LeadScoringError
 from services.reminder_service import ReminderService
 from services.export_services import ExportService
 
@@ -21,7 +21,10 @@ class Commands:
         repository (LeadRepository): The data repository instance to interact with.
     """
 
-    def __init__(self, repository: LeadRepository , scoring_services: LeadScoringService  , reminder_services: ReminderService , export_service: ExportService):
+    def __init__(self, repository: LeadRepository,
+                 scoring_services: LeadScoringService | None = None,
+                 reminder_services: ReminderService | None = None,
+                 export_service: ExportService | None = None):
         self.repository = repository
         self.scoring_services = scoring_services
         self.reminder_services = reminder_services
@@ -43,8 +46,8 @@ class Commands:
         if clean_key == "id":
             return self.repository.get_by_id(user_input)
 
-        elif clean_key == "company":
-            return self.repository.get_by_company(user_input)
+        elif clean_key in ("company", "contacts", "interactions"):
+            return self.repository.search(clean_key, user_input)
 
         elif clean_key == "category":
             return self.repository.get_category(user_input)
@@ -87,15 +90,44 @@ class Commands:
         return self.repository.create_new_lead()
 
     def score_lead(self, lead_id: str) -> str:
+        """scores a lead based of its interactions and data.
+
+        Args:
+            lead_id (str): The unique identifier of the lead to delete.
+
+        Returns:
+            str: A confirmation message indicating the result of the scoring.
+        """
+
+        if self.scoring_services is None:
+            return ("Lead scoring is unavailable. "
+                    "Set GEMINI_API_KEY in your .env file and restart.")
 
         lead_data = self.repository.get_by_id(lead_id)
+        if not lead_data[0].get("leads"):
+            return f"Error: unable to locate lead {lead_id}"
 
-        result = self.scoring_services.score_lead(lead_id , lead_data[0])
+        try:
+            result = self.scoring_services.score_lead(lead_id, lead_data[0])
+        except LeadScoringError as exc:
+            return f"Scoring failed: {exc}"
+
         self.repository.save_score(result)
 
-        return f"Lead Score: [{result.get("Score")}] Reasoning: {result.get("Reasoning")} And Confidence: ({result.get("Confidence"):.0%})"
+        score = result.get("Score")
+        reasoning = result.get("Reasoning")
+        confidence = result.get("Confidence")
+        return f"Lead Score: [{score}] Reasoning: {reasoning} And Confidence: ({confidence:.0%})"
 
     def get_due_leads(self , args: str) -> list[dict] | None:
+        """Gets leads that require contacting and all its associated data from the system.
+
+        Args:
+            args (str): The call to get all the leads due.
+
+        Returns:
+            list[dict]: Information on all the leads due for contact.
+        """
 
         if args == "today":
             return self.reminder_services.get_due()
@@ -106,15 +138,22 @@ class Commands:
         else:
             return None
 
-    def export(self, filename , args: str) -> str:
+    def export(self, filename : str , args: str) -> str:
+        """Export leads and all its associated data from the system.
+
+        Args:
+            filename (str): The desired export filename.
+            args (str): The desired file type.
+
+        Returns:
+            str: A confirmation message indicating the result of the deletion.
+        """
         if args == "csv":
             return self.export_service.export_to_csv(filename)
         elif args == "excel":
             return self.export_service.export_to_excel(filename)
         else:
             return ""
-
-
 
 
 

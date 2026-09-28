@@ -1,4 +1,3 @@
-
 import json
 import os
 
@@ -7,11 +6,21 @@ from datetime import date
 from dotenv import load_dotenv
 
 class LeadScoringError(Exception):
-    """Raised when scoring fails due to API or parsing issues."""
+    """Raised when lead scoring fails due to API errors or response parsing issues."""
     pass
 
 
 class LeadScoringService:
+    """A service that leverages Google's Gemini LLM to analyze and score B2B sales leads.
+
+    This service evaluates lead profiles against standardized sales criteria (Hot, Warm, Cold)
+    and extracts structured insights including the assigned score, brief reasoning, and
+    confidence metrics.
+
+    Attributes:
+        CRITERIA (str): The baseline guidelines used by the LLM to classify lead quality.
+        _REQUIRED_KEYS (set): The structural JSON fields expected from the model's response.
+    """
 
     CRITERIA = """
     Hot:  decision-maker contact present, potential value > 50000,
@@ -23,6 +32,14 @@ class LeadScoringService:
     _REQUIRED_KEYS = {"score", "reasoning", "confidence"}
 
     def __init__(self, api_key: str | None):
+        """Initializes the service with the given Gemini API key and configures the LLM.
+
+        Args:
+            api_key (str | None): The Gemini API key used to authenticate requests.
+
+        Raises:
+            ValueError: If the `api_key` is falsy or missing.
+        """
 
         if not api_key:
             raise ValueError(
@@ -36,6 +53,17 @@ class LeadScoringService:
 
     @classmethod
     def from_env(cls) -> "LeadScoringService":
+        """Factory method to initialize the service using environment variables.
+
+        Loads environment variables from a local `.env` file and retrieves the
+        Gemini API key.
+
+        Returns:
+            LeadScoringService: A configured instance of the scoring service.
+
+        Raises:
+            ValueError: If the `GEMINI_API_KEY` cannot be found in the environment.
+        """
 
         load_dotenv()
         api_key = os.getenv("GEMINI_API_KEY")
@@ -49,6 +77,15 @@ class LeadScoringService:
         return cls(api_key)
 
     def _build_prompt(self, lead_data: dict) -> str:
+        """Constructs the system prompt instructing the LLM how to score the lead data.
+
+        Args:
+            lead_data (dict): The dictionary containing comprehensive profile info for a lead.
+
+        Returns:
+            str: The fully structured prompt string containing evaluation instructions,
+                criteria, source data, and formatting rules.
+        """
 
         prompt = f"""
         You are a B2B sales analyst. Score this lead as Cold, Warm, or Hot. Scoring criteria: {self.CRITERIA} 
@@ -59,6 +96,21 @@ class LeadScoringService:
         return prompt
 
     def _parse_response(self, raw_text: str) -> dict:
+        """Cleans and validates the raw text returned by the Gemini API.
+
+        Removes any accidental markdown code block wrappers, parses the text
+        as JSON, and ensures all required dictionary keys are present.
+
+        Args:
+            raw_text (str): The raw string output received from the LLM.
+
+        Returns:
+            dict: The validated, parsed dictionary containing the structured scoring elements.
+
+        Raises:
+            LeadScoringError: If the response is not valid JSON or if required
+                schema keys are missing.
+        """
 
         cleaned = (
             raw_text.strip()
@@ -83,6 +135,24 @@ class LeadScoringService:
         return parsed
 
     def score_lead(self,  lead_id: str , lead_data: dict) -> dict:
+        """Scores a specific lead profile by querying the Gemini LLM.
+
+        This orchestrates prompt building, network execution, response parsing,
+        and output validation, returning a unified dictionary containing the
+        final score metadata.
+
+        Args:
+            lead_id (str): The unique identifier for the lead being evaluated.
+            lead_data (dict): The target metadata profile of the lead to analyze.
+
+        Returns:
+            dict: A formatted dictionary tracking the lead's ID, assigned Score,
+                Reasoning text, clamped Confidence float, and the evaluation Date.
+
+        Raises:
+            LeadScoringError: If the Gemini API call fails or if the response
+                validation fails.
+        """
         score_date = date.today()
         date_string = score_date.strftime("%Y-%m-%d")
 
@@ -101,4 +171,3 @@ class LeadScoringService:
         confidence = max(0.0, min(1.0, float(parsed["confidence"])))
         result = {"ID" : lead_id , "Score" : parsed["score"] , "Reasoning" : parsed["reasoning"] , "Confidence" : confidence , "Date Scored" : date_string}
         return result
-

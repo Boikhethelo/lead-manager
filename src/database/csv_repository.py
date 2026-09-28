@@ -1,8 +1,8 @@
 """
-repository.py
+csv_repository.py
 
-Provides core file handling and data repository functionality for the Lead Manager tool.
-Handles importing, exporting, and managing company and contact records via CSV storage.
+CSV-backed storage for the Lead Manager: configuration parsing, low-level
+file handling, and the in-memory repository that sits on top of both.
 """
 import os
 import csv
@@ -14,108 +14,109 @@ from database.repository import LeadRepository
 
 BASE_DIR = Path(__file__).resolve().parent
 
+
 class LeadConfig:
-    """Handles the reading of the configuration file and parsing file definitions.
+    """Reads config.ini and builds the CSV file definitions.
 
     Attributes:
-        path (Path): The absolute path to the configuration file (default: config.ini).
+        path (Path): Location of the configuration file.
     """
 
     def __init__(self, config_path: Path = BASE_DIR / "config.ini"):
         self.path = Path(config_path)
 
     def get_definitions(self) -> list[dict]:
-        """Reads the config file and constructs dictionaries for each CSV file definition.
+        """Returns one {'filename', 'header', 'key'} dict per configured CSV file."""
+        if not self.path.exists():
+            raise FileNotFoundError(f"Config file not found: {self.path}")
 
-        Returns:
-            list[dict]: A list containing configuration dictionaries for each file.
-                        Each dict contains 'filename', 'header' (list of fields), and 'key'.
-        """
         config = configparser.ConfigParser()
         config.read(self.path)
 
-        fields_dict = []
+        definitions = []
         for file in config["Files"]:
             name = config["Files"][file]
-            header_name = name.removesuffix(".csv")
+            key = name.removesuffix(".csv")
+            header = ast.literal_eval(config["Fields"].get(key, "[]"))
+            definitions.append({"filename": name, "header": header, "key": key})
 
-            # Safely evaluate the string representation of the list from the config
-            header = ast.literal_eval(config["Fields"].get(header_name, "[]"))
-            fields_dict.append({"filename": name, "header": header, "key": header_name})
+        return definitions
 
-        return fields_dict
 
 class LeadFileHandler:
-    """Handles the low-level reading and writing of CSV files.
+    """Low-level CSV reading and writing.
+
+    Writes go to a temporary file first and are then swapped in with
+    os.replace, so a crash mid-write can't leave a half-written CSV behind.
 
     Attributes:
-        directory (Path): The directory path where the CSV files are stored.
+        directory (Path): Directory holding the CSV files.
     """
 
     def __init__(self, directory: Path = BASE_DIR.parent / "files"):
         self.directory = Path(directory)
 
     def read_file(self, filename: str) -> list[dict]:
-        """Reads a CSV file and returns its contents.
-
-        Args:
-            filename (str): The name of the CSV file to read.
-
-        Returns:
-            list[dict]: A list of dictionaries representing the rows in the CSV file.
-        """
-        with open(f"{self.directory}/{filename}", 'r') as file:
+        """Reads a CSV file into a list of row dicts."""
+        with open(self.directory / filename, "r", newline="", encoding="utf-8-sig") as file:
             return list(DictReader(file))
 
     def write_file(self, filename: str, header: list[str]) -> None:
-        """Creates a new CSV file and writes the header row.
-
-        Args:
-            filename (str): The name of the new CSV file.
-            header (list[str]): A list of column names for the header.
-        """
-        with open(f"{self.directory}/{filename}", "w", newline="") as file:
-            writer = csv.DictWriter(file, fieldnames=header)
-            writer.writeheader()
+        """Creates a new CSV file containing only the header row."""
+        self.save_files(filename, [], header)
 
     def save_files(self, filename: str, rows: list[dict], header: list[str]) -> None:
-        """Overwrites an existing CSV file with new data.
+        """Atomically overwrites a CSV file with the given rows.
 
-        Args:
-            filename (str): The name of the CSV file to save.
-            rows (list[dict]): The complete list of data rows to write.
-            header (list[str]): The column headers for the file.
+        Keys in a row that are not in the header are ignored rather than
+        crashing the save.
         """
-        with open(f"{self.directory}/{filename}", "w", newline="") as file:
-            writer = csv.DictWriter(file, fieldnames=header)
+        self.directory.mkdir(parents=True, exist_ok=True)
+        path = self.directory / filename
+        tmp_path = path.with_name(path.name + ".tmp")
+
+        with open(tmp_path, "w", newline="", encoding="utf-8") as file:
+            writer = csv.DictWriter(file, fieldnames=header, extrasaction="ignore")
             writer.writeheader()
             writer.writerows(rows)
+
+        os.replace(tmp_path, path)
+
 
 class CsvLeadRepository(LeadRepository):
     """Manages lead data loaded into memory from CSV files.
 
-    Acts as the primary interface for creating, reading, updating, and deleting leads.
-
     Attributes:
-        handler (LeadFileHandler): The file handler instance for disk operations.
-        config (LeadConfig): The configuration instance for file definitions.
-        data (dict): The in-memory storage of all loaded CSV data.
+        handler (LeadFileHandler): File handler for disk operations.
+        config (LeadConfig): Source of the file definitions.
+        data (dict): In-memory data, keyed by category.
     """
 
     def __init__(self, handler: LeadFileHandler, config: LeadConfig):
         self.handler = handler
         self.config = config
         self.data = {}
+        self._definitions_cache = None
+
+    # ------------------------------------------------------------------ helpers
+
+    def _definitions(self) -> dict[str, dict]:
+        """Returns the file definitions keyed by category (parsed once)."""
+        if self._definitions_cache is None:
+            self._definitions_cache = {d["key"]: d for d in self.config.get_definitions()}
+        return self._definitions_cache
+
+    @staticmethod
+    def _same_id(a, b) -> bool:
+        """IDs are compared case-insensitively so 'a1b2' finds 'A1B2'."""
+        return str(a or "").strip().upper() == str(b or "").strip().upper()
 
     def ensure_loaded(self) -> None:
-        """Checks if files are loaded in memory. If not, initializes or loads them.
-
-        This prevents redundant disk reads on subsequent operations.
-        """
+        """Loads (creating any missing files) on first use; a no-op afterwards."""
         if self.data:
             return
 
-        for field in self.config.get_definitions():
+        for field in self._definitions().values():
             full_path = os.path.join(self.handler.directory, field["filename"])
 
             if not os.path.exists(full_path):
@@ -123,153 +124,117 @@ class CsvLeadRepository(LeadRepository):
 
             self.data[field["key"]] = self.handler.read_file(field["filename"])
 
+    # ------------------------------------------------------------------ reading
+
     def get_all(self, category: str) -> list[dict]:
-        """Retrieves the entire lead dataset for a specific category.
-
-        Args:
-            category (str): The data category to retrieve (e.g., 'company', 'leads').
-
-        Returns:
-            list[dict]: A list of all records within the specified category.
-        """
+        """Returns all records for a category (empty list if unknown)."""
         self.ensure_loaded()
-        return self.data.get(category, [])
+        return self.data.get(category.strip().lower(), [])
 
     def get_by_id(self, lead_id: str) -> list[dict]:
-        """Fetches all data associated with a specific lead ID across all categories.
-
-        Args:
-            lead_id (str): The unique identifier for the lead.
-
-        Returns:
-            list[dict]: A structured list containing the aggregated data for the lead.
-        """
+        """Returns [{category: [rows]}] for the ID. Rows are copies."""
         self.ensure_loaded()
-        full_lead = {}
-        output = []
-
-        # Aggregate data from all categories (e.g., company, contact info) for this specific ID
-        for category in self.data:
-            data = []
-            full_lead.update({category: data})
-
-            for lead in self.data[category]:
-                if lead.get("ID") == lead_id:
-                    full_lead[category].append(lead)
-
-        output.append(full_lead)
-        return output
+        full_lead = {
+            category: [dict(row) for row in rows if self._same_id(row.get("ID"), lead_id)]
+            for category, rows in self.data.items()
+        }
+        return [full_lead]
 
     def get_category(self, key: str) -> list[dict]:
-        """Fetches all records for a given configuration key."""
+        """Returns a whole category; raises KeyError for an unknown one."""
         self.ensure_loaded()
         return self.data[key]
 
-    def get_by_company(self, name: str) -> list[dict]:
-        """Searches for leads matching a specific company name.
-
-        Args:
-            name (str): The company name to search for.
-
-        Returns:
-            list[dict]: A list of full lead profiles matching the company name.
-        """
+    def search(self, term: str, category: str | None = None) -> list[dict]:
+        """Partial, case-insensitive search across every non-ID column."""
         self.ensure_loaded()
-        matches = []
+        term = term.strip().lower()
+        if not term:
+            return []
 
-        for lead in self.data["company"]:
-            # Utilize partial matching and case-insensitivity for broader search results
-            if name in lead.get("Name", "").lower():
-                full_lead = self.get_by_id(lead.get("ID"))
-                matches.append(full_lead[0])
+        categories = [category.strip().lower()] if category else list(self.data)
 
-        return matches
+        ids = {
+            row["ID"]
+            for cat in categories
+            for row in self.data.get(cat, [])
+            if row.get("ID")
+            and any(term in str(value).lower() for key, value in row.items() if key != "ID")
+        }
+
+        return [self.get_by_id(lead_id)[0] for lead_id in sorted(ids)]
+
+    # ------------------------------------------------------------------ writing
 
     def add(self, category: str, record: dict) -> None:
-        """Adds a new record to the specified category in memory.
-
-        Args:
-            category (str): The data category to append to.
-            record (dict): The dictionary containing the new record data.
-        """
+        """Adds a record to a category in memory."""
         self.ensure_loaded()
         self.data[category].append(record)
 
     def save(self, category: str) -> None:
-        """Saves a specific category's in-memory data back to its respective CSV file.
-
-        Args:
-            category (str): The category key defining which file to update.
-        """
-        filename = f"{category}.csv"
-        definitions = {f["key"]: f for f in self.config.get_definitions()}
-        header = definitions[category]["header"]
-
-        self.handler.save_files(filename, self.data[category], header)
+        """Writes one category back to its CSV file."""
+        definition = self._definitions()[category]
+        self.handler.save_files(definition["filename"], self.data[category], definition["header"])
 
     def remove_lead(self, lead_id: str) -> str:
-        """Deletes a lead from all categories and updates the CSV files.
-
-        Args:
-            lead_id (str): The unique identifier of the lead to remove.
-
-        Returns:
-            str: A confirmation message indicating the lead was removed.
-        """
+        """Deletes a lead from every category that contains it."""
         self.ensure_loaded()
+        removed = False
 
-        # Rebuild the dataset excluding the specified ID across all categories
-        for category in self.data:
-            self.data[category] = [lead for lead in self.data[category] if lead.get("ID") != lead_id]
-            self.save(category)
+        for category in list(self.data):
+            kept = [row for row in self.data[category] if not self._same_id(row.get("ID"), lead_id)]
+            if len(kept) != len(self.data[category]):
+                self.data[category] = kept
+                self.save(category)
+                removed = True
 
+        if not removed:
+            return f"Unable to locate lead {lead_id}"
         return f"lead: {lead_id} has been removed."
 
     def modify_lead(self, lead_id: str, category: str, key: str, change: str) -> str:
-        """Updates a specific field for an existing lead.
+        """Updates a field, matching category and field names case-insensitively.
 
-        Args:
-            lead_id (str): The unique identifier of the lead.
-            category (str): The category where the change should occur.
-            key (str): The specific field/column to update.
-            change (str): The new value to set.
-
-        Returns:
-            str: A status message indicating success or failure.
+        Returns an error message (and changes nothing) for an unknown category,
+        an unknown/read-only field, or a missing lead.
         """
         self.ensure_loaded()
 
-        for lead in self.data[category]:
-            if lead.get("ID") == lead_id:
-                lead[key] = change
-                self.save(category)
-                return f"lead: {lead_id} {category} updated to {change}"
+        cat = category.strip().lower()
+        if cat not in self.data:
+            return f"Unknown category '{category}'. Valid: {', '.join(self.data)}"
 
-        return f"Unable to locate lead {lead_id}"
+        header = self._definitions().get(cat, {}).get("header", [])
+        fields = {h.lower(): h for h in header}
+        field = fields.get(key.strip().lower())
+
+        if field is None or field == "ID":
+            editable = ", ".join(h for h in header if h != "ID")
+            return f"Unknown or read-only field '{key}' in {cat}. Editable: {editable}"
+
+        for row in self.data[cat]:
+            if self._same_id(row.get("ID"), lead_id):
+                row[field] = change
+                self.save(cat)
+                return f"lead: {lead_id} {field} updated to {change}"
+
+        return f"Unable to locate lead {lead_id} in {cat}"
 
     def create_new_lead(self) -> str:
-        """Generates a new unique lead with empty fields across all configuration categories.
-
-        Returns:
-            str: A confirmation message containing the new lead ID.
-        """
+        """Creates an empty lead with a fresh ID across all categories."""
         self.ensure_loaded()
-        existing_ids = {row["ID"] for row in self.data.get("leads", [])}
+        existing_ids = {
+            str(row.get("ID", "")).upper() for rows in self.data.values() for row in rows
+        }
 
         lead_id = self.generate_id()
-
-        # Ensure the generated ID is truly unique
         while lead_id in existing_ids:
             lead_id = self.generate_id()
 
-        # Scaffold empty data for the new lead based on configuration fields
-        for field in self.config.get_definitions():
-            category = field["key"]
+        for definition in self._definitions().values():
+            category = definition["key"]
             record = {"ID": lead_id}
-
-            for key in field["header"]:
-                if key != "ID":
-                    record[key] = ""
+            record.update({key: "" for key in definition["header"] if key != "ID"})
 
             self.data[category].append(record)
             self.save(category)
@@ -277,30 +242,19 @@ class CsvLeadRepository(LeadRepository):
         return f"New lead created with id of : {lead_id}"
 
     def save_score(self, result: dict) -> None:
+        """Inserts or replaces the score row for a lead."""
         self.ensure_loaded()
-        for score in self.data["scores"]:
+        scores = self.data["scores"]
 
-            if score.get("ID") == result.get("ID"):
-                score["Score"] = result.get("Score")
-                score["Reasoning"] = result.get("Reasoning")
-                score["Confidence"] = result.get("Confidence")
-                score["Date Scored"] = result.get("Date Scored")
+        for score in scores:
+            if self._same_id(score.get("ID"), result.get("ID")):
+                score.update({k: result.get(k) for k in
+                              ("Score", "Reasoning", "Confidence", "Date Scored")})
                 self.save("scores")
                 return
 
-        self.data["scores"].append(result)
+        scores.append(result)
         self.save("scores")
-
-
-
-
-
-
-
-
-
-    
-
 
 
 
